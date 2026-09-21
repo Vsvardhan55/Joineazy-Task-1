@@ -73,124 +73,354 @@ const confirmSubmission = async (req, res) => {
 
   try {
     const assignmentId = parseInt(req.params.assignmentId);
-    const groupId = parseInt(req.body.group_id);
+    const requestedGroupId = req.body.group_id
+      ? parseInt(req.body.group_id)
+      : null;
 
-    if (Number.isNaN(assignmentId) || Number.isNaN(groupId)) {
+    if (Number.isNaN(assignmentId)) {
       return res.status(400).json({
         success: false,
-        message: "Valid assignment ID and group ID are required",
+        message: "Valid assignment ID is required",
+      });
+    }
+
+    if (
+      req.body.group_id !== undefined &&
+      req.body.group_id !== null &&
+      Number.isNaN(requestedGroupId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid group ID",
       });
     }
 
     await client.query("BEGIN");
 
-    // Check whether student belongs to group
-    const memberResult = await client.query(
-      `
-      SELECT gm.id
-      FROM group_members gm
-      JOIN users u ON u.id = gm.student_id
-      WHERE gm.group_id = $1
-        AND gm.student_id = $2
-        AND u.role = 'STUDENT'
-      `,
-      [groupId, req.user.id]
-    );
-
-    if (memberResult.rows.length === 0) {
-      await client.query("ROLLBACK");
-
-      return res.status(403).json({
-        success: false,
-        message: "You are not a member of this group",
-      });
-    }
-
-    // Check whether assignment is assigned to this group
+    // --------------------------------------------------
+    // 1. Get assignment + submission type
+    // --------------------------------------------------
     const assignmentResult = await client.query(
       `
-      SELECT a.id, a.title
+      SELECT
+        a.id,
+        a.title,
+        a.submission_type
       FROM assignments a
-      JOIN assignment_groups ag
-        ON ag.assignment_id = a.id
       WHERE a.id = $1
-        AND ag.group_id = $2
       `,
-      [assignmentId, groupId]
+      [assignmentId]
     );
 
     if (assignmentResult.rows.length === 0) {
       await client.query("ROLLBACK");
 
-      return res.status(403).json({
+      return res.status(404).json({
         success: false,
-        message: "This assignment is not assigned to your group",
+        message: "Assignment not found",
       });
     }
 
-    // Check existing confirmation
-    const existingResult = await client.query(
-      `
-      SELECT id, confirmed
-      FROM submissions
-      WHERE assignment_id = $1
-        AND group_id = $2
-        AND student_id = $3
-      `,
-      [assignmentId, groupId, req.user.id]
-    );
+    const assignment = assignmentResult.rows[0];
 
-    if (
-      existingResult.rows.length > 0 &&
-      existingResult.rows[0].confirmed
-    ) {
-      await client.query("ROLLBACK");
+    // --------------------------------------------------
+    // 2. INDIVIDUAL submission
+    //    Each student acknowledges independently.
+    // --------------------------------------------------
+    if (assignment.submission_type === "INDIVIDUAL") {
+      let groupId = requestedGroupId;
 
-      return res.status(409).json({
-        success: false,
-        message: "Submission already confirmed",
-      });
-    }
+      // If no group ID was supplied, find a group assigned
+      // to this assignment that the current student belongs to.
+      if (!groupId) {
+        const studentGroupResult = await client.query(
+          `
+          SELECT
+            g.id AS group_id
+          FROM assignment_groups ag
+          INNER JOIN groups g
+            ON g.id = ag.group_id
+          INNER JOIN group_members gm
+            ON gm.group_id = g.id
+          WHERE ag.assignment_id = $1
+            AND gm.student_id = $2
+          ORDER BY g.id
+          LIMIT 1
+          `,
+          [assignmentId, req.user.id]
+        );
 
-    let result;
+        if (studentGroupResult.rows.length === 0) {
+          await client.query("ROLLBACK");
 
-    if (existingResult.rows.length > 0) {
-      result = await client.query(
+          return res.status(403).json({
+            success: false,
+            message:
+              "You are not assigned to a group for this assignment",
+          });
+        }
+
+        groupId = studentGroupResult.rows[0].group_id;
+      }
+
+      // Verify the student belongs to this group.
+      const memberResult = await client.query(
         `
-        UPDATE submissions
-        SET confirmed = TRUE,
-            confirmed_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-        RETURNING *
+        SELECT gm.id
+        FROM group_members gm
+        INNER JOIN users u
+          ON u.id = gm.student_id
+        WHERE gm.group_id = $1
+          AND gm.student_id = $2
+          AND u.role = 'STUDENT'
         `,
-        [existingResult.rows[0].id]
+        [groupId, req.user.id]
       );
-    } else {
-      result = await client.query(
+
+      if (memberResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+
+        return res.status(403).json({
+          success: false,
+          message: "You are not a member of this group",
+        });
+      }
+
+      // Check existing individual submission.
+      const existingSubmission = await client.query(
         `
-        INSERT INTO submissions
-          (assignment_id, group_id, student_id, confirmed, confirmed_at)
-        VALUES
-          ($1, $2, $3, TRUE, CURRENT_TIMESTAMP)
-        RETURNING *
+        SELECT id, confirmed
+        FROM submissions
+        WHERE assignment_id = $1
+          AND group_id = $2
+          AND student_id = $3
         `,
         [assignmentId, groupId, req.user.id]
       );
+
+      if (
+        existingSubmission.rows.length > 0 &&
+        existingSubmission.rows[0].confirmed
+      ) {
+        await client.query("ROLLBACK");
+
+        return res.status(409).json({
+          success: false,
+          message: "Your submission is already confirmed",
+        });
+      }
+
+      let result;
+
+      if (existingSubmission.rows.length > 0) {
+        result = await client.query(
+          `
+          UPDATE submissions
+          SET confirmed = TRUE,
+              confirmed_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING *
+          `,
+          [existingSubmission.rows[0].id]
+        );
+      } else {
+        result = await client.query(
+          `
+          INSERT INTO submissions
+            (
+              assignment_id,
+              group_id,
+              student_id,
+              confirmed,
+              confirmed_at
+            )
+          VALUES
+            ($1, $2, $3, TRUE, CURRENT_TIMESTAMP)
+          RETURNING *
+          `,
+          [
+            assignmentId,
+            groupId,
+            req.user.id,
+          ]
+        );
+      }
+
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        success: true,
+        message: "Individual submission confirmed successfully",
+        submission_type: "INDIVIDUAL",
+        submission: result.rows[0],
+      });
     }
 
-    await client.query("COMMIT");
+    // --------------------------------------------------
+    // 3. GROUP submission
+    //    Only group leader can acknowledge.
+    //    Acknowledgement applies to all members.
+    // --------------------------------------------------
+    if (assignment.submission_type === "GROUP") {
+      if (!requestedGroupId) {
+        await client.query("ROLLBACK");
 
-    res.status(201).json({
-      success: true,
-      message: "Assignment submission confirmed successfully",
-      submission: result.rows[0],
+        return res.status(400).json({
+          success: false,
+          message: "Group ID is required for group submissions",
+        });
+      }
+
+      const groupId = requestedGroupId;
+
+      // Verify assignment is assigned to this group.
+      const assignmentGroupResult = await client.query(
+        `
+        SELECT 1
+        FROM assignment_groups
+        WHERE assignment_id = $1
+          AND group_id = $2
+        `,
+        [assignmentId, groupId]
+      );
+
+      if (assignmentGroupResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+
+        return res.status(403).json({
+          success: false,
+          message: "This assignment is not assigned to this group",
+        });
+      }
+
+      // Verify student belongs to the group and get leader.
+      const memberResult = await client.query(
+        `
+        SELECT
+          gm.id,
+          gm.student_id,
+          g.created_by
+        FROM group_members gm
+        INNER JOIN groups g
+          ON g.id = gm.group_id
+        INNER JOIN users u
+          ON u.id = gm.student_id
+        WHERE gm.group_id = $1
+          AND gm.student_id = $2
+          AND u.role = 'STUDENT'
+        `,
+        [groupId, req.user.id]
+      );
+
+      if (memberResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+
+        return res.status(403).json({
+          success: false,
+          message: "You are not a member of this group",
+        });
+      }
+
+      const member = memberResult.rows[0];
+
+      if (Number(member.created_by) !== Number(req.user.id)) {
+        await client.query("ROLLBACK");
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "Only the group leader can acknowledge this submission",
+        });
+      }
+
+      // Check whether leader already confirmed.
+      const existingLeaderSubmission = await client.query(
+        `
+        SELECT id, confirmed
+        FROM submissions
+        WHERE assignment_id = $1
+          AND group_id = $2
+          AND student_id = $3
+        `,
+        [assignmentId, groupId, req.user.id]
+      );
+
+      if (
+        existingLeaderSubmission.rows.length > 0 &&
+        existingLeaderSubmission.rows[0].confirmed
+      ) {
+        await client.query("ROLLBACK");
+
+        return res.status(409).json({
+          success: false,
+          message: "Group submission already confirmed",
+        });
+      }
+
+      // Get every student in the group.
+      const membersResult = await client.query(
+        `
+        SELECT student_id
+        FROM group_members
+        WHERE group_id = $1
+        `,
+        [groupId]
+      );
+
+      // Propagate acknowledgement to every group member.
+      for (const groupMember of membersResult.rows) {
+        await client.query(
+          `
+          INSERT INTO submissions
+            (
+              assignment_id,
+              group_id,
+              student_id,
+              confirmed,
+              confirmed_at
+            )
+          VALUES
+            ($1, $2, $3, TRUE, CURRENT_TIMESTAMP)
+          ON CONFLICT (assignment_id, group_id, student_id)
+          DO UPDATE SET
+            confirmed = TRUE,
+            confirmed_at = CURRENT_TIMESTAMP
+          `,
+          [
+            assignmentId,
+            groupId,
+            groupMember.student_id,
+          ]
+        );
+      }
+
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        success: true,
+        message: "Group submission acknowledged successfully",
+        submission_type: "GROUP",
+        acknowledged_by: req.user.id,
+        group_id: groupId,
+        propagated_to_all_members: true,
+      });
+    }
+
+    // --------------------------------------------------
+    // 4. Unsupported submission type
+    // --------------------------------------------------
+    await client.query("ROLLBACK");
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid submission type",
     });
   } catch (error) {
     await client.query("ROLLBACK");
 
     console.error("Confirm submission error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to confirm submission",
     });

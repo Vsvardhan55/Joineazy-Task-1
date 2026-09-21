@@ -5,9 +5,13 @@ const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    const storedUser = localStorage.getItem("user");
-
-    return storedUser ? JSON.parse(storedUser) : null;
+    try {
+      const storedUser = localStorage.getItem("user");
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (error) {
+      localStorage.removeItem("user");
+      return null;
+    }
   });
 
   const [loading, setLoading] = useState(true);
@@ -31,6 +35,8 @@ export const AuthProvider = ({ children }) => {
           JSON.stringify(response.user)
         );
       } catch (error) {
+        console.error("Session verification failed:", error);
+
         logoutUser();
         setUser(null);
       } finally {
@@ -53,6 +59,8 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     logoutUser();
     setUser(null);
+    localStorage.removeItem("user");
+    localStorage.removeItem("token");
   };
 
   return (

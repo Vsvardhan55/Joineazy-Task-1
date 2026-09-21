@@ -5,8 +5,19 @@ export const getAssignments = async () => {
   return response.data;
 };
 
-export const getAssignmentById = async (assignmentId) => {
-  const response = await api.get(`/assignments/${assignmentId}`);
+export const getAssignmentById = async (
+  assignmentId,
+  groupId = null
+) => {
+  const response = await api.get(
+    `/assignments/${assignmentId}`,
+    {
+      params: groupId
+        ? { group_id: groupId }
+        : {},
+    }
+  );
+
   return response.data;
 };
 

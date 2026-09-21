@@ -10,6 +10,7 @@ const createAssignment = async (req, res) => {
       description,
       due_date,
       onedrive_link,
+      submission_type = "GROUP",
       group_ids = [],
     } = req.body;
 
@@ -22,10 +23,24 @@ const createAssignment = async (req, res) => {
       });
     }
 
+    if (!["GROUP", "INDIVIDUAL"].includes(submission_type)) {
+      return res.status(400).json({
+        success: false,
+        message: "submission_type must be GROUP or INDIVIDUAL",
+      });
+    }
+
     if (!Array.isArray(group_ids)) {
       return res.status(400).json({
         success: false,
         message: "group_ids must be an array",
+      });
+    }
+
+    if (group_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select at least one group",
       });
     }
 
@@ -34,47 +49,60 @@ const createAssignment = async (req, res) => {
     try {
       await client.query("BEGIN");
 
-await client.query(
-  `
-  UPDATE assignments
-  SET
-    title = $1,
-    description = $2,
-    due_date = $3,
-    onedrive_link = $4
-  WHERE id = $5
-  `,
-  [
-    title,
-    description,
-    due_date,
-    onedrive_link,
-    assignmentId,
-  ]
-);
+      const assignmentResult = await client.query(
+        `
+        INSERT INTO assignments
+          (
+            title,
+            description,
+            due_date,
+            onedrive_link,
+            submission_type,
+            created_by
+          )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING
+          id,
+          title,
+          description,
+          due_date,
+          onedrive_link,
+          submission_type,
+          created_by,
+          created_at
+        `,
+        [
+          title.trim(),
+          description?.trim() || null,
+          due_date,
+          onedrive_link.trim(),
+          submission_type,
+          adminId,
+        ]
+      );
 
-await client.query(
-  `
-  DELETE FROM assignment_groups
-  WHERE assignment_id = $1
-  `,
-  [assignmentId]
-);
+      const assignment = assignmentResult.rows[0];
 
-for (const groupId of group_ids) {
-  await client.query(
-    `
-    INSERT INTO assignment_groups
-      (assignment_id, group_id)
-    VALUES ($1, $2)
-    ON CONFLICT (assignment_id, group_id)
-    DO NOTHING
-    `,
-    [assignmentId, groupId]
-  );
-}
+      for (const groupId of group_ids) {
+        await client.query(
+          `
+          INSERT INTO assignment_groups
+            (assignment_id, group_id)
+          VALUES ($1, $2)
+          ON CONFLICT (assignment_id, group_id)
+          DO NOTHING
+          `,
+          [assignment.id, groupId]
+        );
+      }
 
-await client.query("COMMIT");
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        success: true,
+        message: "Assignment created successfully",
+        assignment,
+      });
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -84,7 +112,7 @@ await client.query("COMMIT");
   } catch (error) {
     console.error("Create assignment error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server error while creating assignment",
     });
@@ -92,69 +120,80 @@ await client.query("COMMIT");
 };
 
 // ==========================================
-// GET ALL ASSIGNMENTS
+// GET ASSIGNMENTS
 // ==========================================
 const getAssignments = async (req, res) => {
   try {
-    let result;
+    const userId = req.user.id;
+    const role = req.user.role;
 
-    if (req.user.role === "ADMIN") {
-      // Admin can see all assignments
-      result = await pool.query(`
+    // ADMIN / PROFESSOR
+    if (role === "ADMIN") {
+      const result = await pool.query(
+        `
         SELECT
           a.id,
           a.title,
           a.description,
           a.due_date,
           a.onedrive_link,
+          a.submission_type,
           a.created_by,
           a.created_at,
-          COUNT(DISTINCT ag.group_id) AS assigned_group_count
+          COUNT(DISTINCT ag.group_id)::int AS assigned_group_count
         FROM assignments a
         LEFT JOIN assignment_groups ag
           ON ag.assignment_id = a.id
+        WHERE a.created_by = $1
         GROUP BY a.id
         ORDER BY a.due_date ASC
-      `);
-    } else {
-      // Student can only see assignments assigned
-      // to groups they belong to
-      result = await pool.query(
-        `
-        SELECT DISTINCT
-          a.id,
-          a.title,
-          a.description,
-          a.due_date,
-          a.onedrive_link,
-          a.created_by,
-          a.created_at,
-          g.id AS group_id,
-          g.name AS group_name
-        FROM assignments a
-        JOIN assignment_groups ag
-          ON ag.assignment_id = a.id
-        JOIN groups g
-          ON g.id = ag.group_id
-        JOIN group_members gm
-          ON gm.group_id = g.id
-        WHERE gm.student_id = $1
-        ORDER BY a.due_date ASC
         `,
-        [req.user.id]
+        [userId]
       );
+
+      return res.json({
+        success: true,
+        assignments: result.rows,
+      });
     }
 
-    res.json({
+    // STUDENT
+    const result = await pool.query(
+      `
+      SELECT DISTINCT
+        a.id,
+        a.title,
+        a.description,
+        a.due_date,
+        a.onedrive_link,
+        a.submission_type,
+        a.created_by,
+        a.created_at,
+        g.id AS group_id,
+        g.name AS group_name
+      FROM assignments a
+      INNER JOIN assignment_groups ag
+        ON ag.assignment_id = a.id
+      INNER JOIN groups g
+        ON g.id = ag.group_id
+      INNER JOIN group_members gm
+        ON gm.group_id = g.id
+      WHERE gm.student_id = $1
+      ORDER BY a.due_date ASC
+      `,
+      [userId]
+    );
+
+    return res.json({
       success: true,
       assignments: result.rows,
     });
   } catch (error) {
     console.error("Get assignments error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: "Failed to get assignments",
+      message: "Server error while fetching assignments",
     });
   }
 };
@@ -167,16 +206,19 @@ const getAssignmentById = async (req, res) => {
     const assignmentId = req.params.id;
 
     const assignmentResult = await pool.query(
-      `SELECT
-          a.id,
-          a.title,
-          a.description,
-          a.due_date,
-          a.onedrive_link,
-          a.created_by,
-          a.created_at
-       FROM assignments a
-       WHERE a.id = $1`,
+      `
+      SELECT
+        a.id,
+        a.title,
+        a.description,
+        a.due_date,
+        a.onedrive_link,
+        a.submission_type,
+        a.created_by,
+        a.created_at
+      FROM assignments a
+      WHERE a.id = $1
+      `,
       [assignmentId]
     );
 
@@ -188,26 +230,66 @@ const getAssignmentById = async (req, res) => {
     }
 
     const groupsResult = await pool.query(
-      `SELECT
-          g.id,
-          g.name
-       FROM assignment_groups ag
-       INNER JOIN groups g
-          ON ag.group_id = g.id
-       WHERE ag.assignment_id = $1
-       ORDER BY g.name`,
+      `
+      SELECT
+        g.id,
+        g.name,
+        g.created_by AS group_created_by
+      FROM assignment_groups ag
+      INNER JOIN groups g
+        ON ag.group_id = g.id
+      WHERE ag.assignment_id = $1
+      ORDER BY g.name
+      `,
       [assignmentId]
     );
 
-    res.json({
+    const assignment = assignmentResult.rows[0];
+
+    /*
+     * If the request is for a particular group,
+     * return that group's information directly.
+     */
+    const requestedGroupId = req.query.group_id
+      ? Number(req.query.group_id)
+      : null;
+
+    let selectedGroup = null;
+
+    if (requestedGroupId) {
+      selectedGroup =
+        groupsResult.rows.find(
+          (group) =>
+            Number(group.id) === requestedGroupId
+        ) || null;
+    }
+
+    /*
+     * If there is only one assigned group and no
+     * group_id was supplied, use that group.
+     */
+    if (!selectedGroup && groupsResult.rows.length === 1) {
+      selectedGroup = groupsResult.rows[0];
+    }
+
+    return res.json({
       success: true,
-      assignment: assignmentResult.rows[0],
+
+      assignment: {
+        ...assignment,
+
+        group_id: selectedGroup?.id || null,
+        group_name: selectedGroup?.name || null,
+        group_created_by:
+          selectedGroup?.group_created_by || null,
+      },
+
       groups: groupsResult.rows,
     });
   } catch (error) {
     console.error("Get assignment error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Server error while fetching assignment",
     });
@@ -227,6 +309,7 @@ const updateAssignment = async (req, res) => {
       description,
       due_date,
       onedrive_link,
+      submission_type = "GROUP",
     } = req.body;
 
     const existing = await pool.query(
@@ -235,6 +318,13 @@ const updateAssignment = async (req, res) => {
        WHERE id = $1 AND created_by = $2`,
       [assignmentId, adminId]
     );
+
+    if (!["GROUP", "INDIVIDUAL"].includes(submission_type)) {
+      return res.status(400).json({
+        success: false,
+        message: "submission_type must be GROUP or INDIVIDUAL",
+     });
+    }
 
     if (existing.rows.length === 0) {
       return res.status(404).json({
@@ -251,22 +341,31 @@ const updateAssignment = async (req, res) => {
     }
 
     const result = await pool.query(
-      `UPDATE assignments
-       SET title = $1,
-           description = $2,
-           due_date = $3,
-           onedrive_link = $4
-       WHERE id = $5
-       RETURNING id, title, description, due_date,
-                 onedrive_link, created_by, created_at`,
-      [
-        title.trim(),
-        description || null,
-        due_date,
-        onedrive_link.trim(),
-        assignmentId,
-      ]
-    );
+  `UPDATE assignments
+   SET title = $1,
+       description = $2,
+       due_date = $3,
+       onedrive_link = $4,
+       submission_type = $5
+   WHERE id = $6
+   RETURNING
+     id,
+     title,
+     description,
+     due_date,
+     onedrive_link,
+     submission_type,
+     created_by,
+     created_at`,
+  [
+    title.trim(),
+    description?.trim() || null,
+    due_date,
+    onedrive_link.trim(),
+    submission_type,
+    assignmentId,
+  ]
+);
 
     res.json({
       success: true,
