@@ -1439,6 +1439,17 @@ Student, Group & Assignment Management System
 
 UI/UX enhancement, responsive design improvements, assignment submission workflows, group acknowledgement logic, backend improvements, and submission progress tracking.
 
+## Live Deployment
+
+### Frontend
+https://joineazy-task-1-g5nd.vercel.app
+
+### Backend API
+https://joineazy-task-1.vercel.app
+
+### Database
+Neon PostgreSQL
+
 ---
 
 # 📄 License
