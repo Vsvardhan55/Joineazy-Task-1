@@ -30,10 +30,12 @@ function AdminDashboard() {
 
   const [editingAssignment, setEditingAssignment] = useState(null);
   const [updating, setUpdating] = useState(false);
+  const [submissionType, setSubmissionType] = useState("GROUP");
 
   const [tracking, setTracking] = useState([]);
-const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingLoading, setTrackingLoading] = useState(false);
 
+  const [trackingFilter, setTrackingFilter] = useState("ALL");
   const loadAssignments = async () => {
     try {
       setLoading(true);
@@ -58,12 +60,8 @@ const [trackingLoading, setTrackingLoading] = useState(false);
 
     const response = await getAdminSubmissionTracking();
 
-    console.log("Admin tracking response:", response);
-
     setTracking(response.tracking || []);
   } catch (err) {
-    console.error("Admin tracking error:", err);
-
     setError(
       err.response?.data?.message ||
         "Failed to load submission tracking."
@@ -95,6 +93,7 @@ const overallProgress =
     await loadAssignments();
     await loadGroups();
     await loadTracking();
+
   };
 
   loadDashboard();
@@ -136,6 +135,7 @@ const overallProgress =
         due_date: dueDate,
         onedrive_link: onedriveLink.trim(),
         group_ids: selectedGroupIds,
+        submission_type: submissionType,
       });
 
       setSuccess("Assignment created successfully.");
@@ -145,8 +145,10 @@ const overallProgress =
       setDueDate("");
       setOnedriveLink("");
       setSelectedGroupIds([]);
+      setSubmissionType("GROUP");
 
       await loadAssignments();
+      await loadTracking();
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -178,6 +180,9 @@ const overallProgress =
   }
 
   setOnedriveLink(assignment.onedrive_link || "");
+  setSubmissionType(
+    assignment.submission_type || "GROUP"
+  );
 
   // Load currently assigned groups
   setSelectedGroupIds(
@@ -195,6 +200,7 @@ const handleCancelEdit = () => {
   setDueDate("");
   setOnedriveLink("");
   setSelectedGroupIds([]);
+  setSubmissionType("GROUP");
   setError("");
   setSuccess("");
 };
@@ -230,6 +236,7 @@ const handleUpdateAssignment = async (e) => {
       description: description.trim(),
       due_date: dueDate,
       onedrive_link: onedriveLink.trim(),
+      submission_type: submissionType,
       group_ids: selectedGroupIds,
     });
 
@@ -241,8 +248,10 @@ const handleUpdateAssignment = async (e) => {
     setDueDate("");
     setOnedriveLink("");
     setSelectedGroupIds([]);
+    setSubmissionType("GROUP");
 
     await loadAssignments();
+    await loadTracking();
   } catch (err) {
     setError(
       err.response?.data?.message ||
@@ -269,6 +278,7 @@ const handleUpdateAssignment = async (e) => {
       setSuccess("Assignment deleted successfully.");
 
       await loadAssignments();
+      await loadTracking();
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -297,44 +307,70 @@ const handleUpdateAssignment = async (e) => {
   return (
     <div className="min-h-screen bg-slate-100">
       {/* Navbar */}
-      <header className="border-b bg-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">
-              Joineazy
-            </h1>
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+  <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
+    <div>
+      <h1 className="text-xl font-bold tracking-tight text-slate-900">
+        Joineazy
+      </h1>
 
-            <p className="text-sm text-slate-500">
-              Professor Portal
-            </p>
-          </div>
+      <p className="text-xs font-medium text-slate-500 sm:text-sm">
+        Professor Portal
+      </p>
+    </div>
 
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-slate-700">
-              {user?.name}
-            </span>
+    <div className="flex items-center gap-3 sm:gap-4">
+      <div className="hidden text-right sm:block">
+        <p className="text-sm font-semibold text-slate-800">
+          {user?.name}
+        </p>
 
-            <button
-              onClick={handleLogout}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+        <p className="text-xs text-slate-500">
+          Administrator
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100 sm:px-4"
+      >
+        Logout
+      </button>
+    </div>
+  </div>
+</header>
 
       <main className="mx-auto max-w-7xl px-6 py-8">
         {/* Heading */}
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-slate-900">
-            Admin Dashboard
-          </h2>
+  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <div>
+      <p className="text-sm font-semibold text-blue-600">
+        Professor Workspace
+      </p>
 
-          <p className="mt-2 text-slate-600">
-            Create assignments and monitor group progress.
-          </p>
-        </div>
+      <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+        Admin Dashboard
+      </h2>
+
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
+        Create assignments, assign student groups, and monitor
+        submission progress from one place.
+      </p>
+    </div>
+
+    <div className="w-fit rounded-xl border border-slate-200 bg-white px-4 py-2 shadow-sm">
+      <p className="text-xs font-medium text-slate-400">
+        Current Role
+      </p>
+
+      <p className="mt-0.5 text-sm font-bold text-slate-800">
+        {user?.role}
+      </p>
+    </div>
+  </div>
+</div>
 
         {/* Messages */}
         {error && (
@@ -349,93 +385,114 @@ const handleUpdateAssignment = async (e) => {
           </div>
         )}
 
-        {/* Stats */}
-        <div className="mb-8 grid gap-5 sm:grid-cols-2">
-          <div className="rounded-xl bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">
-              Total Assignments
-            </p>
+        {/* Analytics */}
+<section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
-            <p className="mt-2 text-3xl font-bold text-slate-900">
-              {assignments.length}
-            </p>
-          </div>
+  {/* Assignments */}
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-medium text-slate-500">
+          Total Assignments
+        </p>
 
-          <div className="rounded-xl bg-white p-6 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">
-              Role
-            </p>
+        <p className="mt-2 text-3xl font-bold text-slate-900">
+          {assignments.length}
+        </p>
 
-            <p className="mt-2 text-3xl font-bold text-slate-900">
-              {user?.role}
-            </p>
-          </div>
-        </div>
+        <p className="mt-1 text-xs text-slate-400">
+          Created by you
+        </p>
+      </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-  <div className="rounded-xl bg-white p-5 shadow-sm border">
-    <p className="text-sm text-gray-500">
-      Total Students
-    </p>
-
-    <p className="mt-2 text-3xl font-bold text-gray-900">
-      {totalStudents}
-    </p>
-
-    <p className="mt-1 text-sm text-gray-500">
-      Students in tracked groups
-    </p>
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-xl">
+        📚
+      </div>
+    </div>
   </div>
 
-  <div className="rounded-xl bg-white p-5 shadow-sm border">
-    <p className="text-sm text-gray-500">
-      Confirmed
-    </p>
+  {/* Students */}
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-medium text-slate-500">
+          Total Students
+        </p>
 
-    <p className="mt-2 text-3xl font-bold text-green-600">
-      {confirmedSubmissions}
-    </p>
+        <p className="mt-2 text-3xl font-bold text-slate-900">
+          {totalStudents}
+        </p>
 
-    <p className="mt-1 text-sm text-gray-500">
-      Submission confirmations
-    </p>
+        <p className="mt-1 text-xs text-slate-400">
+          Students in tracked groups
+        </p>
+      </div>
+
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-xl">
+        👥
+      </div>
+    </div>
   </div>
 
-  <div className="rounded-xl bg-white p-5 shadow-sm border">
-    <p className="text-sm text-gray-500">
-      Pending
-    </p>
+  {/* Confirmed */}
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-medium text-slate-500">
+          Confirmed
+        </p>
 
-    <p className="mt-2 text-3xl font-bold text-orange-600">
-      {pendingSubmissions}
-    </p>
+        <p className="mt-2 text-3xl font-bold text-green-600">
+          {confirmedSubmissions}
+        </p>
 
-    <p className="mt-1 text-sm text-gray-500">
-      Awaiting confirmation
-    </p>
+        <p className="mt-1 text-xs text-slate-400">
+          Submission confirmations
+        </p>
+      </div>
+
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-50 text-xl">
+        ✓
+      </div>
+    </div>
   </div>
 
-  <div className="rounded-xl bg-white p-5 shadow-sm border">
-    <p className="text-sm text-gray-500">
-      Overall Progress
-    </p>
+  {/* Overall Progress */}
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-medium text-slate-500">
+          Overall Progress
+        </p>
 
-    <p className="mt-2 text-3xl font-bold text-blue-600">
-      {overallProgress}%
-    </p>
+        <p className="mt-2 text-3xl font-bold text-blue-600">
+          {overallProgress}%
+        </p>
 
-    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-200">
+        <p className="mt-1 text-xs text-slate-400">
+          {pendingSubmissions} pending confirmation
+          {pendingSubmissions !== 1 ? "s" : ""}
+        </p>
+      </div>
+
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-xl">
+        📊
+      </div>
+    </div>
+
+    <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
       <div
-        className="h-full rounded-full bg-blue-600 transition-all"
+        className="h-full rounded-full bg-blue-600 transition-all duration-500"
         style={{ width: `${overallProgress}%` }}
       />
     </div>
   </div>
-</div>
+
+</section>
 
         <div className="grid gap-8 lg:grid-cols-3">
           {/* Create Assignment */}
-          <section className="rounded-xl bg-white p-6 shadow-sm lg:col-span-1">
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-1 lg:sticky lg:top-24 lg:self-start">
             <h3 className="text-xl font-bold text-slate-900">
                 {editingAssignment
                 ? "Edit Assignment"
@@ -464,7 +521,7 @@ const handleUpdateAssignment = async (e) => {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Full Stack Development Assignment"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
 
@@ -495,8 +552,28 @@ const handleUpdateAssignment = async (e) => {
                   onChange={(e) =>
                     setDueDate(e.target.value)
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Submission Type
+                </label>
+
+                <select
+                  value={submissionType}
+                  onChange={(e) => setSubmissionType(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="GROUP">Group Submission</option>
+                  <option value="INDIVIDUAL">Individual Submission</option>
+                </select>
+
+                <p className="mt-1 text-xs text-slate-400">
+                  Group: only the group leader acknowledges.
+                  Individual: each student confirms independently.
+                </p>
               </div>
 
               <div>
@@ -507,26 +584,28 @@ const handleUpdateAssignment = async (e) => {
                 <input
                   type="url"
                   value={onedriveLink}
-                  onChange={(e) =>
-                    setOnedriveLink(e.target.value)
-                  }
+                  onChange={(e) => setOnedriveLink(e.target.value)}
                   placeholder="https://onedrive.live.com/..."
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
+
+                <p className="mt-1 text-xs text-slate-400">
+                  Add the OneDrive link containing the assignment resources.
+                </p>
               </div>
 
               <div>
-  <label className="mb-2 block text-sm font-medium text-slate-700">
-    Assign to Groups
-  </label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Assign to Groups
+                </label>
 
-  {groups.length === 0 ? (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <p className="text-sm text-slate-500">
-        No groups available.
-      </p>
-    </div>
-  ) : (
+                {groups.length === 0 ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-sm text-slate-500">
+                      No groups available.
+                    </p>
+                  </div>
+                ) : (
     <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
       {groups.map((group) => (
         <label
@@ -544,22 +623,25 @@ const handleUpdateAssignment = async (e) => {
           </div>
 
           <input
-            type="checkbox"
-            checked={selectedGroupIds.includes(group.id)}
-            onChange={(e) => {
-              if (e.target.checked) {
-                setSelectedGroupIds((prev) => [
-                  ...prev,
-                  group.id,
-                ]);
-              } else {
-                setSelectedGroupIds((prev) =>
-                  prev.filter((id) => id !== group.id)
-                );
-              }
-            }}
-            className="h-4 w-4"
-          />
+  type="checkbox"
+  checked={selectedGroupIds.includes(Number(group.id))}
+  onChange={(e) => {
+    const groupId = Number(group.id);
+
+    if (e.target.checked) {
+      setSelectedGroupIds((prev) =>
+        prev.includes(groupId)
+          ? prev
+          : [...prev, groupId]
+      );
+    } else {
+      setSelectedGroupIds((prev) =>
+        prev.filter((id) => id !== groupId)
+      );
+    }
+  }}
+  className="h-4 w-4"
+/>
         </label>
       ))}
     </div>
@@ -573,7 +655,7 @@ const handleUpdateAssignment = async (e) => {
               <button
                 type="submit"
                 disabled={creating || updating}
-                className="w-full rounded-lg bg-blue-600 px-4 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
               >
               {editingAssignment
                 ? updating
@@ -585,22 +667,13 @@ const handleUpdateAssignment = async (e) => {
               </button>
               {editingAssignment && (
                 <button
-                    type="button"
-                    onClick={() => {
-                        setEditingAssignment(null);
-                        setTitle("");
-                        setDescription("");
-                        setDueDate("");
-                        setOnedriveLink("");
-                        setSelectedGroupIds([]);
-                        setError("");
-                        setSuccess("");
-                    }}
-                    className="w-full rounded-lg border border-slate-300 px-4 py-2.5 font-semibold text-slate-700 hover:bg-slate-50"
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
-                    Cancel Edit
+                  Cancel Edit
                 </button>
-        )}
+              )}
             </form>
           </section>
 
@@ -630,9 +703,9 @@ const handleUpdateAssignment = async (e) => {
                   {assignments.map((assignment) => (
                     <div
                       key={assignment.id}
-                      className="rounded-xl border border-slate-200 p-5"
+                      className="rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-0.5 hover:shadow-md"
                     >
-                      <div className="flex flex-col justify-between gap-4 sm:flex-row">
+                      <div className="flex flex-col gap-4">
                         <div>
                           <h4 className="text-lg font-bold text-slate-900">
                             {assignment.title}
@@ -644,10 +717,22 @@ const handleUpdateAssignment = async (e) => {
                           </p>
                         </div>
 
+                        <div className="mt-3">
+                          {assignment.submission_type === "INDIVIDUAL" ? (
+                            <span className="inline-flex rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700">
+                              Individual Submission
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                              Group Submission
+                            </span>
+                          )}
+                        </div>
+
                         <div className="flex gap-2">
                             <button
                                 onClick={() => handleEdit(assignment)}
-                                className="h-fit rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-100"
+                                className="h-fit rounded-xl bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-100"
                             >
                                 Edit
                             </button>
@@ -656,7 +741,7 @@ const handleUpdateAssignment = async (e) => {
                             onClick={() =>
                                 handleDelete(assignment.id)
                             }
-                            className="h-fit rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-100"
+                            className="h-fit rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100"
                             >
                                 Delete
                             </button>
@@ -689,14 +774,20 @@ const handleUpdateAssignment = async (e) => {
                       </div>
 
                       <div className="mt-4">
-                        <a
-                          href={assignment.onedrive_link}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm font-semibold text-blue-600 hover:text-blue-800"
-                        >
-                          Open OneDrive →
-                        </a>
+                        {assignment.onedrive_link ? (
+                          <a
+                            href={assignment.onedrive_link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-semibold text-blue-600 hover:text-blue-800"
+                          >
+                            Open OneDrive →
+                          </a>
+                        ) : (
+                          <span className="text-sm text-slate-400">
+                            No OneDrive link provided
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -707,15 +798,27 @@ const handleUpdateAssignment = async (e) => {
         </div>
         <section className="mt-8">
   <div className="rounded-xl bg-white p-6 shadow-sm">
-    <div className="mb-6">
-      <h3 className="text-xl font-bold text-slate-900">
-        Submission Tracking
-      </h3>
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  <div>
+    <h3 className="text-xl font-bold text-slate-900">
+      Submission Tracking
+    </h3>
 
-      <p className="mt-1 text-sm text-slate-500">
-        Monitor student submission confirmations by group.
-      </p>
-    </div>
+    <p className="mt-1 text-sm text-slate-500">
+      Monitor student submission confirmations by group.
+    </p>
+  </div>
+
+  <select
+    value={trackingFilter}
+    onChange={(e) => setTrackingFilter(e.target.value)}
+    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-500"
+  >
+    <option value="ALL">All Statuses</option>
+    <option value="CONFIRMED">Confirmed</option>
+    <option value="PENDING">Pending</option>
+  </select>
+</div>
 
     {trackingLoading ? (
       <p className="text-sm text-slate-500">
@@ -766,8 +869,10 @@ const handleUpdateAssignment = async (e) => {
                   </h4>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    {confirmedStudents} of {totalStudents} students
-                    confirmed
+                    {confirmedStudents} of {totalStudents} students confirmed
+                    {assignment.submission_type === "INDIVIDUAL"
+                      ? " individually"
+                      : " across assigned groups"}
                   </p>
                 </div>
 
@@ -851,7 +956,19 @@ const handleUpdateAssignment = async (e) => {
                       </div>
 
                       <div className="mt-4 space-y-2">
-                        {groupStudents.map((student) => (
+                        {groupStudents
+                          .filter((student) => {
+                            if (trackingFilter === "ALL") {
+                              return true;
+                            }
+
+                            if (trackingFilter === "CONFIRMED") {
+                              return student.confirmed;
+                            }
+
+                            return !student.confirmed;
+                          })
+                          .map((student) => (
                           <div
                             key={student.student_id}
                             className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"

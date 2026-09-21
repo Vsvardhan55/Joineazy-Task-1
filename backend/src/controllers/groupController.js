@@ -186,12 +186,15 @@ const addMember = async (req, res) => {
     const group = groupResult.rows[0];
 
     // Only group creator can add members
-    if (group.created_by !== currentUserId) {
-      return res.status(403).json({
-        success: false,
-        message: "Only the group creator can add members",
-      });
-    }
+    if (
+  Number(groupResult.rows[0].created_by) !==
+  Number(currentUserId)
+) {
+  return res.status(403).json({
+    success: false,
+    message: "Only the group creator can remove members",
+  });
+}
 
     // Find student
     let userQuery;
